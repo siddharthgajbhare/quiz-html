@@ -1,16 +1,3 @@
-"""
-Python Quiz App - Enhanced Edition
-
-Features:
-- Easy / Medium / Hard modes (different timer and negative-marking penalty)
-- 10 questions per quiz
-- Negative marking for wrong answers (no penalty for timeout)
-- Optional sound effects (Windows winsound; Tk bell fallback)
-- Light / dark mode toggle
-- Progress bar, question counter, score and accuracy tracking
-- Leaderboard and review of incorrect answers
-- Keyboard shortcuts: 1-4 to answer, Enter for Next
-"""
 
 import json
 import random
