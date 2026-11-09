@@ -1,3 +1,16 @@
+"""
+Python Quiz App - Enhanced Edition
+
+Features:
+- Easy / Medium / Hard modes (different timer and negative-marking penalty)
+- 10 questions per quiz
+- Negative marking for wrong answers (no penalty for timeout)
+- Optional sound effects (Windows winsound; Tk bell fallback)
+- Light / dark mode toggle
+- Progress bar, question counter, score and accuracy tracking
+- Leaderboard and review of incorrect answers
+- Keyboard shortcuts: 1-4 to answer, Enter for Next
+"""
 
 import json
 import random
@@ -81,7 +94,7 @@ QUESTION_BANK = {
                  "An anonymous function"),
     ],
     "Mixed": [],
-  }
+}
 QUESTION_BANK["Mixed"] = QUESTION_BANK["Basics"] + QUESTION_BANK["Intermediate"]
 
 
@@ -148,7 +161,7 @@ class QuizEngine:
     def total(self):
         return len(self.questions)
 
-  @property
+    @property
     def current(self):
         return self.questions[self.index]
 
@@ -215,7 +228,7 @@ class QuizApp(tk.Tk):
             "input": "#ffffff", "correct": "#2e7d32", "wrong": "#c62828",
         }
 
-  def _setup_styles(self):
+    def _setup_styles(self):
         p = self._palette()
         self.configure(bg=p["bg"])
         style = ttk.Style(self)
@@ -297,7 +310,8 @@ class QuizApp(tk.Tk):
                    command=self.toggle_theme).pack(side="right", padx=4)
         ttk.Button(bar, text=("🔊 Sound ON" if self.sound_var.get() else "🔇 Sound OFF"),
                    command=self.toggle_sound).pack(side="right", padx=4)
- def show_start(self):
+
+    def show_start(self):
         self._clear()
         c = self.container
         self._toolbar(c)
@@ -355,3 +369,189 @@ class QuizApp(tk.Tk):
             count=QUESTIONS_PER_QUIZ,
             penalty=settings["penalty"],
         )
+        self.show_question()
+
+    def show_question(self, review=False):
+        self._clear()
+        e, q, c = self.engine, self.engine.current, self.container
+        self.answered = review
+
+        self._toolbar(c)
+        header = ttk.Frame(c)
+        header.pack(fill="x")
+        ttk.Label(header, text=f"QUESTION {e.index + 1} / {e.total}",
+                  style="Heading.TLabel").pack(side="left")
+        ttk.Label(header, text=f"Score: {e.score:.2f}", style="Heading.TLabel").pack(side="right")
+
+        ttk.Progressbar(c, maximum=e.total, value=e.index + (1 if review else 0)).pack(fill="x", pady=12)
+        stats = ttk.Frame(c)
+        stats.pack(fill="x", pady=(0, 18))
+        ttk.Label(stats, text=f"Correct: {e.correct_count}", style="Info.TLabel").pack(side="left")
+        ttk.Label(stats, text=f"Wrong: {e.wrong_count}", style="Info.TLabel").pack(side="left", padx=18)
+        ttk.Label(stats, text=f"Time out: {e.timeout_count}", style="Info.TLabel").pack(side="left")
+        self.timer_lbl = ttk.Label(stats, text="", style="Info.TLabel")
+        self.timer_lbl.pack(side="right")
+
+        card = ttk.Frame(c, style="Card.TFrame", padding=26)
+        card.pack(fill="both", expand=True, padx=25, pady=8)
+        ttk.Label(card, text=q.text, style="Question.TLabel", wraplength=720,
+                  justify="center").pack(pady=(20, 28))
+
+        grid = ttk.Frame(card, style="Card.TFrame")
+        grid.pack(fill="x", padx=12)
+        grid.columnconfigure((0, 1), weight=1, uniform="opt")
+        self.option_buttons = []
+        for i, option in enumerate(q.options):
+            button = ttk.Button(
+                grid, text=f"{i + 1}.  {option}", style="Option.TButton",
+                command=lambda i=i: self.choose(i)
+            )
+            button.grid(row=i // 2, column=i % 2, padx=8, pady=9, sticky="ew")
+            self.option_buttons.append(button)
+
+        self.feedback_lbl = ttk.Label(card, text="", style="Info.TLabel",
+                                      wraplength=700, justify="center")
+        self.feedback_lbl.pack(pady=18)
+        self.next_btn = ttk.Button(card, text="NEXT" if e.index < e.total - 1 else "FINISH",
+                                   style="Main.TButton", command=self.next_question)
+
+        if review:
+            self._show_answer_feedback(q, None)
+            for button in self.option_buttons:
+                button.state(["disabled"])
+            self.next_btn.pack(pady=8)
+        else:
+            self.bind("<Key>", self._on_key)
+            self.bind("<Return>", lambda event: self.next_question() if self.answered else None)
+            self.time_left = DIFFICULTY_SETTINGS[self.difficulty_var.get()]["time"]
+            self._tick()
+
+    def _on_key(self, event):
+        if event.char in "1234" and not self.answered:
+            index = int(event.char) - 1
+            if index < len(self.option_buttons):
+                self.choose(index)
+
+    def _tick(self):
+        self.timer_lbl.config(
+            text=f"Time left: {self.time_left}s",
+            foreground="#e05252" if self.time_left <= 5 else self._palette()["muted"]
+        )
+        if self.time_left <= 0:
+            self.choose(None)
+            return
+        self.time_left -= 1
+        self.timer_id = self.after(1000, self._tick)
+
+    def _stop_timer(self):
+        if self.timer_id is not None:
+            try:
+                self.after_cancel(self.timer_id)
+            except tk.TclError:
+                pass
+            self.timer_id = None
+
+    def _show_answer_feedback(self, q, chosen_index):
+        for i, button in enumerate(self.option_buttons):
+            if q.options[i] == q.answer:
+                button.configure(style="Correct.TButton")
+            elif chosen_index is not None and i == chosen_index:
+                button.configure(style="Wrong.TButton")
+        chosen = q.options[chosen_index] if chosen_index is not None else None
+        if chosen == q.answer:
+            message = "Correct! +1 mark."
+            colour = self._palette()["correct"]
+        elif chosen is None:
+            message = f"Time is up! Correct answer: {q.answer}. No marks deducted."
+            colour = self._palette()["wrong"]
+        else:
+            message = (
+                f"Wrong answer. Correct answer: {q.answer}. "
+                f"-{self.engine.penalty:g} mark."
+            )
+            colour = self._palette()["wrong"]
+        if q.explanation:
+            message += "\n" + q.explanation
+        self.feedback_lbl.config(text=message, foreground=colour)
+
+    def choose(self, index):
+        if self.answered:
+            return
+        self.answered = True
+        self._stop_timer()
+        q = self.engine.current
+        correct = self.engine.submit(index)
+        self._show_answer_feedback(q, index)
+        for button in self.option_buttons:
+            button.state(["disabled"])
+        self.play_sound("correct" if correct else ("timeout" if index is None else "wrong"))
+        self.next_btn.pack(pady=8)
+
+    def next_question(self):
+        if not self.answered:
+            return
+        self.engine.index += 1
+        if self.engine.finished:
+            self.show_result()
+        else:
+            self.show_question()
+
+    def show_result(self):
+        self._clear()
+        e, c = self.engine, self.container
+        name, category = self.name_var.get().strip(), self.category_var.get()
+        difficulty = self.difficulty_var.get()
+        save_score(name, category, difficulty, e)
+        self.play_sound("finish")
+
+        verdict = (
+            "Outstanding!" if e.percent >= 90 else
+            "Great job!" if e.percent >= 70 else
+            "Good effort!" if e.percent >= 50 else "Keep practising!"
+        )
+        self._toolbar(c)
+        ttk.Label(c, text="QUIZ COMPLETED", style="Title.TLabel").pack(pady=(8, 5))
+        ttk.Label(c, text=verdict, style="Heading.TLabel").pack(pady=4)
+
+        card = ttk.Frame(c, style="Card.TFrame", padding=22)
+        card.pack(fill="x", padx=35, pady=12)
+        ttk.Label(card, text=f"{name}  •  {difficulty} mode",
+                  style="Heading.TLabel").pack(pady=4)
+        ttk.Label(card, text=f"{e.score:.2f} / {e.total} marks",
+                  style="Title.TLabel").pack(pady=4)
+        ttk.Label(card, text=f"{e.percent}% score", style="Heading.TLabel").pack(pady=4)
+
+        progress = ttk.Progressbar(card, maximum=e.total, value=e.correct_count)
+        progress.pack(fill="x", pady=10)
+        ttk.Label(card, text=(
+            f"Correct: {e.correct_count}    Wrong: {e.wrong_count}    "
+            f"Timed out: {e.timeout_count}"
+        ), style="Info.TLabel").pack(pady=5)
+        ttk.Label(card, text=f"Negative marking: -{e.penalty:g} for each wrong answer",
+                  style="Info.TLabel").pack(pady=3)
+
+        ttk.Label(c, text="REVIEW OF MISTAKES", style="Heading.TLabel").pack(pady=(10, 5))
+        if e.wrong:
+            review = tk.Text(c, height=8, wrap="word", font=("Segoe UI", 10),
+                             relief="flat", padx=12, pady=10)
+            for question, chosen, reason in e.wrong:
+                review.insert("end", f"Q: {question.text}\n")
+                review.insert("end", f"Your answer: {chosen if chosen is not None else reason}\n")
+                review.insert("end", f"Correct answer: {question.answer}\n\n")
+            review.configure(state="disabled", bg=self._palette()["panel"],
+                             fg=self._palette()["fg"])
+            review.pack(fill="x", padx=35)
+        else:
+            ttk.Label(c, text="Perfect! No mistakes to review.",
+                      style="Info.TLabel").pack()
+
+        buttons = ttk.Frame(c)
+        buttons.pack(pady=14)
+        ttk.Button(buttons, text="PLAY AGAIN", style="Main.TButton",
+                   command=self.show_start).pack(side="left", padx=8)
+        ttk.Button(buttons, text="QUIT", command=self.destroy).pack(side="left", padx=8)
+
+
+if __name__ == "__main__":
+    app = QuizApp()
+    app.mainloop()
